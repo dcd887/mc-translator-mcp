@@ -41,6 +41,11 @@ def _count_entries(data: bytes, fmt: str) -> int:
             return len(obj) if isinstance(obj, dict) else 0
         except Exception:
             return 0
+    if fmt == "properties":
+        try:
+            return len(LangParser.parse(data, "properties"))
+        except Exception:
+            return 0
     # .lang
     try:
         text = data.decode("utf-8")
@@ -88,11 +93,13 @@ class PackBuilder:
             existing_data,
             fmt,
         )
-        serialized = LangParser.serialize(merged, fmt)
+        # Minecraft 不加载 .properties；.properties 源统一转为 .json 输出
+        out_fmt = "json" if fmt == "properties" else fmt
+        serialized = LangParser.serialize(merged, out_fmt)
 
         if self.mode == "jar":
             return self._write_to_jar(lang_file, serialized, original_data)
-        return self._write_resource_pack(lang_file, serialized, fmt)
+        return self._write_resource_pack(lang_file, serialized, out_fmt)
 
     def _write_resource_pack(
         self,

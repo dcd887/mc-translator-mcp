@@ -41,6 +41,8 @@ class JARParser:
         "en_us.lang",
         "en_US.json",
         "en_US.lang",
+        "en_us.properties",
+        "en_US.properties",
     }
 
     ZH_NAME = "zh_cn.json"
@@ -76,7 +78,13 @@ class JARParser:
                 if source_lower is None:
                     continue
                 actual_name = fname_map[source_lower.lower()]
-                fmt = "json" if actual_name.lower().endswith(".json") else "lang"
+                name_lower = actual_name.lower()
+                if name_lower.endswith(".json"):
+                    fmt = "json"
+                elif name_lower.endswith(".lang"):
+                    fmt = "lang"
+                else:
+                    fmt = "properties"
                 # 找对应中文路径
                 zh_path = self._find_zh_cn(names, modid, actual_name)
                 result.append(LanguageFile(

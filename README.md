@@ -90,7 +90,7 @@ output/
 | 模块 | 功能 |
 |------|------|
 | `jar_parser.py` | 解析 jar 包结构，发现语言文件 |
-| `lang_parser.py` | 解析 .json / .lang 格式语言文件 |
+| `lang_parser.py` | 解析 .json / .lang / .properties 格式语言文件 |
 | `translator.py` | 通义千问批量翻译 + 本地缓存 |
 | `pack_builder.py` | 生成资源包或改写 jar |
 | `mcp_server.py` | MCP 服务器入口，暴露两个工具 |
@@ -107,4 +107,4 @@ python -m pytest tests/ -v
 2. **智能缓存**：相同原文 + modid 的条目只翻译一次，避免重复消耗 token
 3. **已有汉化跳过**：检测到已有 zh_cn.json 时自动跳过，避免覆盖社区翻译
 4. **批量翻译**：每批最多 BATCH_SIZE 条，一次 API 调用返回全部结果
-5. **格式兼容**：支持 .json（现代）和 .lang（传统）两种语言文件格式
+5. **格式兼容**：支持 `.json`（现代）、`.lang`（传统）与 `.properties`（部分老模组/Java 习惯）三种语言文件格式；`.properties` 源会自动转为 Minecraft 可加载的 `zh_cn.json` 输出

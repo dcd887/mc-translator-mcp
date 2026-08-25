@@ -74,3 +74,15 @@ class TestJARParser:
         parser = JARParser(jar)
         # 按 modid 字母序排序返回
         assert parser.get_all_modids() == ["bar", "foo"]
+
+    def test_find_en_us_properties(self):
+        jar = _make_test_jar({
+            "assets/legacymod/lang/en_us.properties": "item.stick=Stick\n",
+        })
+        parser = JARParser(jar)
+        files = parser.find_language_files()
+        assert len(files) == 1
+        f = files[0]
+        assert f.modid == "legacymod"
+        assert f.format == "properties"
+        assert f.zip_path == "assets/legacymod/lang/en_us.properties"

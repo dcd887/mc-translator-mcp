@@ -55,6 +55,42 @@ class TestLangParser:
         assert result["item.iron_ingot"] == "Tiebar"
         assert result["item.gold_ingot"] == "Gold Bar"
 
+    def test_parse_properties_valid(self):
+        data = b"item.stick=Stick\nitem.grass:Grass Block\nitem.dirt= Dirt \n"
+        result = LangParser.parse_properties(data)
+        assert result == {
+            "item.stick": "Stick",
+            "item.grass": "Grass Block",
+            "item.dirt": "Dirt",
+        }
+
+    def test_parse_properties_comments_blank(self):
+        data = b"# comment\n! another\n\nkey1=val1\n# mid\nkey2=val2\n"
+        result = LangParser.parse_properties(data)
+        assert list(result.keys()) == ["key1", "key2"]
+
+    def test_parse_properties_unicode_escape(self):
+        # 字节内容为字面量 \u00f6 \u00df（Größen），解析时应解码为德语字符
+        data = b"greeting=Gr\\u00f6\\u00dfen\n"
+        result = LangParser.parse_properties(data)
+        assert result["greeting"] == "Größen"
+
+    def test_serialize_properties_roundtrip(self):
+        entries = {"item.stick": "Stick", "item.pickaxe": "Pickaxe"}
+        serialized = LangParser.serialize_properties(entries)
+        restored = LangParser.parse_properties(serialized)
+        assert restored == entries
+
+    def test_parse_properties_via_unified_entry(self):
+        data = b"item.axe=Stone Axe\n"
+        assert LangParser.parse(data, "properties") == {"item.axe": "Stone Axe"}
+
+    def test_merge_with_existing_properties(self):
+        new = {"a": "A"}
+        result = LangParser.merge_with_existing(new, b"a=old", "properties")
+        # 已有 a 不覆盖，保留旧值
+        assert result == {"a": "old"}
+
     def test_merge_none_existing_returns_new(self):
         new = {"a": "A"}
         result = LangParser.merge_with_existing(new, None, "json")
