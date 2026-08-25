@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
-"""MCP 服务器入口：暴露 translate_mod / translate_all_mods_in_directory 两个工具。
+"""MCP 服务器入口：暴露翻译与预览工具。
+
+工具：
+  - translate_mod                    : 翻译单个模组 jar，生成中文资源包
+  - translate_all_mods_in_directory  : 批量翻译目录下所有 jar
+  - preview_mod                      : （零成本）预览汉化范围与预估 token，不调 AI 不写文件
+  - dry_run_mod                      : 抽样翻译预览质量，不写入任何文件（会消耗少量 token）
 
 启动方式：
   python -m mc_translator_mcp
@@ -10,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -96,6 +103,130 @@ async def translate_mod(
             })())
 
     return builder.summarize(results)
+
+
+@mcp.tool()
+async def preview_mod(jar_path: str) -> str:
+    """（零成本）预览单个模组的汉化范围：列出每个语言文件、条目数与预估 token。
+
+    只做 jar 扫描与文本解析，**不调用任何 AI 翻译 API、不消耗 token、不写任何文件**，
+    用于在真正翻译前评估工作量与费用。
+
+    Args:
+        jar_path: 模组 jar 文件的绝对路径
+    Returns:
+        预览摘要 JSON（含每个 modid 的格式、条目数、是否已有 zh_cn、社区估算 token）
+    """
+    jar = Path(jar_path)
+    if not jar.exists():
+        return json.dumps({"error": f"文件不存在: {jar}"}, ensure_ascii=False, indent=2)
+
+    try:
+        parser = JARParser(jar)
+        lang_files = parser.find_language_files()
+    except ValueError as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False, indent=2)
+
+    if not lang_files:
+        return json.dumps({"message": f"{jar.name} 中未找到 en_us/en_US 语言文件"}, ensure_ascii=False, indent=2)
+
+    mods = []
+    total_entries = 0
+    total_chars = 0
+    for lf in lang_files:
+        try:
+            data = parser.read_language_bytes(lf)
+            entries = LangParser.parse(data, lf.format)
+            n = len(entries)
+            total_chars += sum(len(v) for v in entries.values())
+        except Exception:
+            n = 0
+        total_entries += n
+        mods.append({
+            "modid": lf.modid,
+            "source_format": lf.format,
+            "zip_path": lf.zip_path,
+            "has_zh_cn": lf.has_zh_cn,
+            "entries_estimated": n,
+        })
+
+    # 粗略估算：英文约 4 字符/token，中文约 1 字符/token；仅给量级参考
+    est_tokens = max(1, round(total_chars / 4))
+    return json.dumps({
+        "jar": str(jar),
+        "mod_count": len(lang_files),
+        "total_entries": total_entries,
+        "total_source_chars": total_chars,
+        "estimated_tokens_rough": est_tokens,
+        "mods": mods,
+        "note": "这是未调用 AI 的预览估算；实际 token 消耗以执行时供应商计费为准。",
+    }, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def dry_run_mod(
+    jar_path: str,
+    limit: int = 20,
+    batch_size: int = 15,
+) -> str:
+    """预览翻译效果：解析单个模组并抽样翻译一小部分，**不写入任何文件**。
+
+    注意：本工具**会调用 AI 翻译 API 并消耗少量 token**（最多 `limit` 条样例），
+    只用来快速感受翻译质量，不会生成资源包、不改动原 jar。
+
+    Args:
+        jar_path: 模组 jar 文件的绝对路径
+        limit: 最多预览（抽样翻译）的条目总数（默认 20）
+        batch_size: 每批翻译的词条数（默认 15）
+    Returns:
+        预览 JSON，含原文-译文对照样例
+    """
+    jar = Path(jar_path)
+    if not jar.exists():
+        return json.dumps({"error": f"文件不存在: {jar}"}, ensure_ascii=False, indent=2)
+
+    cfg = TranslConfig()
+    if batch_size != 15:
+        cfg.batch_size = batch_size
+    try:
+        translator = Translator(cfg, _get_cache())
+    except ValueError as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False, indent=2)
+
+    try:
+        parser = JARParser(jar)
+        lang_files = parser.find_language_files()
+    except ValueError as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False, indent=2)
+
+    samples = []
+    remaining = limit
+    for lf in lang_files:
+        if remaining <= 0:
+            break
+        try:
+            data = parser.read_language_bytes(lf)
+            entries = LangParser.parse(data, lf.format)
+            sample = dict(list(entries.items())[:min(remaining, 10)])
+            if sample:
+                translated = translator.translate_batch(lf.modid, sample)
+                samples.append({
+                    "modid": lf.modid,
+                    "format": lf.format,
+                    "zip_path": lf.zip_path,
+                    "samples": [{"key": k, "original": v, "translation": translated.get(k, "")} for k, v in sample.items()],
+                })
+                remaining -= len(sample)
+        except Exception:
+            continue
+
+    return json.dumps({
+        "jar": str(jar),
+        "sample_count": sum(len(s["samples"]) for s in samples),
+        "has_more": remaining <= 0 and sum(len(s["samples"]) for s in samples) > 0,
+        "note": "dry-run 会调用 AI 并消耗少量 token，仅作质量预览；未写入任何文件。",
+        "samples": samples,
+    }, ensure_ascii=False, indent=2)
 
 
 @mcp.tool()
@@ -186,7 +317,23 @@ def main() -> None:
     p_check = sub.add_parser("check", help="检查 jar 语言文件，不翻译")
     p_check.add_argument("jar_path", help="模组 jar 路径")
 
+    p_preview = sub.add_parser("preview", help="预览汉化范围与预估 token（零成本，不调 AI）")
+    p_preview.add_argument("jar_path", help="模组 jar 路径")
+
+    p_dry = sub.add_parser("dry-run", help="抽样翻译预览质量（会消耗少量 token，不写文件）", aliases=["dry_run"])
+    p_dry.add_argument("jar_path", help="模组 jar 路径")
+    p_dry.add_argument("--limit", type=int, default=20)
+    p_dry.add_argument("--batch-size", type=int, default=15)
+
     args = parser.parse_args()
+
+    if args.command == "preview":
+        print(asyncio.run(preview_mod(args.jar_path)))
+        sys.exit(0)
+
+    if args.command in ("dry-run", "dry_run"):
+        print(asyncio.run(dry_run_mod(args.jar_path, limit=args.limit, batch_size=args.batch_size)))
+        sys.exit(0)
 
     if args.command == "check":
         jar = Path(args.jar_path)

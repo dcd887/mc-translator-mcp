@@ -45,12 +45,20 @@ python -m mc_translator_mcp
 # 检查 jar 语言文件
 python -m mc_translator_mcp check <jar_path>
 
+# 零成本预览：看会翻译哪些模组、多少条文本、预估 token（不调 AI、不写文件）
+python -m mc_translator_mcp preview <jar_path>
+
+# 抽样翻译预览质量（会消耗少量 token，不写文件）
+python -m mc_translator_mcp dry-run <jar_path> [--limit 20]
+
 # 翻译单个 jar
 python -m mc_translator_mcp mod <jar_path> [--batch-size 15] [--force-retranslate]
 
 # 批量翻译目录下所有 jar
 python -m mc_translator_mcp dir <directory> [--glob "*.jar"] [--batch-size 15]
 ```
+
+> 💡 **先 preview 再翻译**：翻译会消耗 token。正式翻译前先跑 `preview` 看工作量和预估消耗，或 `dry-run` 抽样体验翻译质量，再决定是否执行。
 
 ## 使用示例
 
@@ -105,7 +113,7 @@ output/
 | `lang_parser.py` | 解析 .json / .lang / .properties 格式语言文件 |
 | `translator.py` | 通义千问批量翻译 + 本地缓存 |
 | `pack_builder.py` | 生成资源包或改写 jar |
-| `mcp_server.py` | MCP 服务器入口，暴露两个工具 |
+| `mcp_server.py` | MCP 服务器入口，暴露 4 个工具：`translate_mod` / `translate_all_mods_in_directory` / `preview_mod`（零成本预览）/ `dry_run_mod`（抽样预览） |
 
 ## 测试
 

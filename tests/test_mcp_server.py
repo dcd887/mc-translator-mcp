@@ -1,5 +1,6 @@
 """tests/test_mcp_server.py — MCP服务器功能测试（mock API）"""
 
+import asyncio
 import json
 import sys
 import tempfile
@@ -12,6 +13,47 @@ from mc_translator_mcp.jar_parser import JARParser
 from mc_translator_mcp.lang_parser import LangParser
 from mc_translator_mcp.translator import TranslConfig, TranslationCache, Translator
 from mc_translator_mcp.pack_builder import PackBuilder
+from mc_translator_mcp.mcp_server import preview_mod, dry_run_mod
+
+
+def _make_jar(content: dict, modid: str = "testmod") -> Path:
+    import zipfile
+    tmp = Path(tempfile.mkdtemp()) / f"{modid}.jar"
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path, data in content.items():
+            zf.writestr(path, data)
+    return tmp
+
+
+def test_preview_mod_zero_cost():
+    """preview_mod 不调用 API、不写文件，只返回条目数与预估 token。"""
+    jar = _make_jar({
+        "assets/testmod/lang/en_us.json": json.dumps({
+            "item.stick": "Stick", "block.grass": "Grass Block", "item.iron": "Iron Ingot",
+        }),
+    })
+    result = json.loads(asyncio.run(preview_mod(str(jar))))
+    assert result["mod_count"] == 1
+    assert result["mods"][0]["modid"] == "testmod"
+    assert result["mods"][0]["has_zh_cn"] is False
+    assert result["total_entries"] == 3
+    assert result["estimated_tokens_rough"] >= 1
+    assert "mods" in result
+
+
+def test_preview_mod_not_found():
+    result = json.loads(asyncio.run(preview_mod("/nonexistent/path.jar")))
+    assert "error" in result
+
+
+def test_dry_run_mod_requires_api_key(monkeypatch):
+    """dry-run 无 API Key 时应返回配置错误（JSON），而不是崩溃。"""
+    # 强制清空所有可能的 API Key 来源，保证测试确定
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    monkeypatch.delenv("MC_TRANSLATOR_API_KEY", raising=False)
+    jar = _make_jar({"assets/testmod/lang/en_us.json": json.dumps({"a": "b"})})
+    result = json.loads(asyncio.run(dry_run_mod(str(jar), limit=5)))
+    assert "error" in result and "API" in result["error"]
 
 
 def test_translate_single_mod():
