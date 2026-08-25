@@ -49,8 +49,8 @@ def test_preview_mod_not_found():
 def test_dry_run_mod_requires_api_key(monkeypatch):
     """dry-run 无 API Key 时应返回配置错误（JSON），而不是崩溃。"""
     # 强制清空所有可能的 API Key 来源，保证测试确定
-    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
-    monkeypatch.delenv("MC_TRANSLATOR_API_KEY", raising=False)
+    for k in ("DASHSCOPE_API_KEY", "TRANSLATOR_API_KEY", "AGNES_API_KEY", "DEEPSEEK_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
     jar = _make_jar({"assets/testmod/lang/en_us.json": json.dumps({"a": "b"})})
     result = json.loads(asyncio.run(dry_run_mod(str(jar), limit=5)))
     assert "error" in result and "API" in result["error"]

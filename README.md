@@ -12,14 +12,35 @@ pip install -e .
 
 ## 配置
 
-复制 `.env.example` 为 `.env` 并填入你的通义千问 API Key：
+**不绑定任何特定 AI 供应商**。复制 `.env.example` 为 `.env`，填任一家的 key 即可（优先级 `custom > agnes > dashscope`，可选 DeepSeek 兜底）：
 
 ```bash
 cp .env.example .env
-# 编辑 .env，填入 DASHSCOPE_API_KEY
 ```
 
-API Key 申请：[阿里云百炼控制台](https://bailian.console.aliyun.com/)
+任选一种方式（检测到哪个 key 就用哪个）：
+
+```bash
+# 方式 A（推荐，最通用）：任意 OpenAI 兼容供应商 —— 自已填 key / 网关 / 模型名
+TRANSLATOR_API_KEY=sk-xxx
+TRANSLATOR_BASE_URL=https://your-gateway.example.com/v1
+TRANSLATOR_MODEL=your-model
+
+# 方式 B：agnes ai
+# AGNES_API_KEY=sk-xxx
+# AGNES_BASE_URL=https://apihub.agnes-ai.com/v1
+# AGNES_MODEL=agnes-2.5-flash
+
+# 方式 C：通义千问（阿里云百炼）—— https://bailian.console.aliyun.com/
+# DASHSCOPE_API_KEY=sk-xxx
+# QWEN_MODEL=qwen-plus
+
+# 方式 D：DeepSeek（可选，主供应商失败时 fallback）
+# DEEPSEEK_API_KEY=
+# DEEPSEEK_MODEL=deepseek-chat
+```
+
+> 所有配置都从环境变量 / `.env` 读取，**任何环境本地都能跑通、可移植**。填好任一家的 key 即可开始翻译；改成别的供应商只需改 `.env`，不用动代码。
 
 ## 启动方式
 
@@ -111,7 +132,7 @@ output/
 |------|------|
 | `jar_parser.py` | 解析 jar 包结构，发现语言文件 |
 | `lang_parser.py` | 解析 .json / .lang / .properties 格式语言文件 |
-| `translator.py` | 通义千问批量翻译 + 本地缓存 |
+| `translator.py` | 多供应商批量翻译（custom / agnes / 通义 / DeepSeek）+ Minecraft 术语提示 + 本地缓存 |
 | `pack_builder.py` | 生成资源包或改写 jar |
 | `mcp_server.py` | MCP 服务器入口，暴露 4 个工具：`translate_mod` / `translate_all_mods_in_directory` / `preview_mod`（零成本预览）/ `dry_run_mod`（抽样预览） |
 

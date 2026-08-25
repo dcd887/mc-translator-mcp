@@ -35,8 +35,56 @@ class TestTranslationCache:
 
 class TestTranslator:
     def test_init_requires_api_key(self):
-        with pytest.raises(ValueError, match="DASHSCOPE_API_KEY"):
+        with pytest.raises(ValueError, match="API Key"):
             Translator(_make_cfg(dashscope_api_key=""), TranslationCache(Path(tempfile.mktemp())))
+
+    @patch("mc_translator_mcp.translator.OpenAI")
+    def test_custom_vendor_takes_priority(self, mock_openai_cls, tmp_path: Path):
+        """通用自定义供应商优先于 dashscope，并正确使用其 base_url / model。"""
+        cfg = TranslConfig(
+            translator_api_key="custom-key",
+            translator_base_url="https://my.gateway.example/v1",
+            translator_model="my-model",
+            dashscope_api_key="dash-key",
+        )
+        client = MagicMock()
+        resp = MagicMock()
+        resp.choices = [MagicMock(message=MagicMock(content="item.stick:木棍"))]
+        client.chat.completions.create.return_value = resp
+        mock_openai_cls.return_value = client
+
+        t = Translator(cfg, TranslationCache(tmp_path / "c.json"))
+        result = t.translate_batch("testmod", {"item.stick": "Stick"})
+        assert result["item.stick"] == "木棍"
+
+        # 主供应商必须用自定义 base_url（而非 dashscope 的固定地址）
+        assert t._primary[1] == "my-model"
+        call_kwargs = mock_openai_cls.call_args_list[0].kwargs
+        assert call_kwargs["base_url"] == "https://my.gateway.example/v1"
+        assert call_kwargs["api_key"] == "custom-key"
+
+    @patch("mc_translator_mcp.translator.OpenAI")
+    def test_fallback_used_when_primary_fails(self, mock_openai_cls, tmp_path: Path):
+        """主供应商抛异常时，应切换到 DeepSeek fallback。"""
+        cfg = TranslConfig(
+            translator_api_key="custom-key",
+            translator_base_url="https://custom/v1",
+            translator_model="custom-model",
+            deepseek_api_key="ds-key",
+            use_deepseek_fallback=True,
+        )
+        primary_client = MagicMock()
+        primary_client.chat.completions.create.side_effect = Exception("boom")
+        fallback_client = MagicMock()
+        resp = MagicMock()
+        resp.choices = [MagicMock(message=MagicMock(content="item.stick:木棍"))]
+        fallback_client.chat.completions.create.return_value = resp
+        mock_openai_cls.side_effect = [primary_client, fallback_client]
+
+        t = Translator(cfg, TranslationCache(tmp_path / "c.json"))
+        result = t.translate_batch("testmod", {"item.stick": "Stick"})
+        assert result["item.stick"] == "木棍"
+        fallback_client.chat.completions.create.assert_called_once()
 
     def test_translate_batch_empty(self, tmp_path: Path):
         t = Translator(_make_cfg(), TranslationCache(tmp_path / "c.json"))

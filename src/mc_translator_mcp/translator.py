@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
-"""翻译模块：封装通义千问（DashScope）批量翻译 + 本地缓存。
+"""翻译模块：支持任意 OpenAI 兼容供应商的批量翻译 + 本地缓存。
+
+核心设计：**不绑定任何特定供应商**。所有配置从环境变量 / `.env` 读取，
+由使用者自备 API Key / base_url / 模型名，任何环境均可本地跑通、可移植。
+优先级：custom（通用）> agnes > dashscope，可选 DeepSeek 做 fallback。
 
 设计要点：
   - 批量翻译：每次最多 BATCH_SIZE 个 key-value，一次 API 调用返回全部
-  - 缓存层：translatd_cache.json 记录已翻译的 (modid, key, hash)，避免重复消耗 token
-  - 容错：单次批次失败只回退该批次，不影响其他批次
-  - 默认使用 DashScope 的 qwen-plus 模型（OpenAI 兼容接口）
+  - 缓存层：translator_cache.json 记录已翻译的 (modid, key, hash)，避免重复消耗 token
+  - 容错：单次批次失败只回退该批次，不影响其他批次；主供应商失败可切 DeepSeek 兜底
 """
 
 from __future__ import annotations
@@ -33,12 +36,36 @@ except ImportError:  # fallback
 
 
 class TranslConfig(BaseSettings):
-    """翻译配置，从 .env 加载。"""
+    """翻译配置：支持任意 OpenAI 兼容供应商，从环境变量 / `.env` 读取。
+
+    完全不绑定某一家。优先级：custom（通用，最灵活）> agnes > dashscope。
+    可选 DeepSeek 做 fallback。你在哪配了 key，就用哪家。
+
+    配置项：
+      - 通用（推荐）：TRANSLATOR_API_KEY / TRANSLATOR_BASE_URL / TRANSLATOR_MODEL
+      - agnes ai：AGNES_API_KEY / AGNES_BASE_URL / AGNES_MODEL
+      - 通义千问：DASHSCOPE_API_KEY / QWEN_MODEL
+      - DeepSeek（fallback）：DEEPSEEK_API_KEY / DEEPSEEK_MODEL
+    """
+    # 通用 OpenAI 兼容供应商（最灵活，优先）
+    translator_api_key: str = ""
+    translator_base_url: str = ""
+    translator_model: str = ""
+    # agnes ai 别名
+    agnes_api_key: str = ""
+    agnes_base_url: str = "https://apihub.agnes-ai.com/v1"
+    agnes_model: str = "agnes-2.5-flash"
+    # 通义千问 别名
     dashscope_api_key: str = ""
     qwen_model: str = "qwen-plus"
+    # DeepSeek 别名（可选 fallback）
+    deepseek_api_key: str = ""
+    deepseek_model: str = "deepseek-chat"
+
     batch_size: int = 15
     output_dir: str = "output"
-
+    cache_file: str = "translator_cache.json"
+    use_deepseek_fallback: bool = True
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
@@ -121,15 +148,43 @@ class Translator:
     ) -> None:
         self.cfg = config
         self.cache = cache
-        if not config.dashscope_api_key:
+        self._primary: Optional[tuple[OpenAI, str]] = None   # (client, model)
+        self._fallback: Optional[tuple[OpenAI, str]] = None  # DeepSeek 兜底
+        self._init_clients()
+        if not self._primary:
             raise ValueError(
-                "未配置 DASHSCOPE_API_KEY。请复制 .env.example 为 .env 并填入你的通义千问 API Key。"
+                "未配置可用的 API Key。请通过 `.env` 或环境变量至少设置一个供应商：\n"
+                "  TRANSLATOR_API_KEY / TRANSLATOR_BASE_URL / TRANSLATOR_MODEL（通用，推荐）\n"
+                "  AGNES_API_KEY / DASHSCOPE_API_KEY / DEEPSEEK_API_KEY"
             )
-        self.client = OpenAI(
-            api_key=config.dashscope_api_key,
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        )
-        self.model = config.qwen_model
+
+    def _init_clients(self) -> None:
+        """按优先级装配主/备用客户端：custom > agnes > dashscope，可选 DeepSeek 兜底。"""
+        c = self.cfg
+
+        if c.translator_api_key:
+            self._primary = (
+                OpenAI(api_key=c.translator_api_key, base_url=c.translator_base_url or None),
+                c.translator_model,
+            )
+        elif c.agnes_api_key:
+            self._primary = (
+                OpenAI(api_key=c.agnes_api_key, base_url=c.agnes_base_url),
+                c.agnes_model,
+            )
+        elif c.dashscope_api_key:
+            self._primary = (
+                OpenAI(api_key=c.dashscope_api_key,
+                       base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"),
+                c.qwen_model,
+            )
+
+        if c.use_deepseek_fallback and c.deepseek_api_key:
+            self._fallback = (
+                OpenAI(api_key=c.deepseek_api_key,
+                       base_url="https://api.deepseek.com/v1"),
+                c.deepseek_model,
+            )
 
     def translate_batch(
         self,
@@ -169,7 +224,10 @@ class Translator:
         return {**cached, **all_result}
 
     def _call_llm(self, modid: str, batch: dict[str, str]) -> dict[str, str]:
-        """调用 LLM 翻译一个批次，返回 {key: translation}。"""
+        """调用 LLM 翻译一个批次，返回 {key: translation}。
+
+        主供应商失败时，若有 DeepSeek fallback 则自动切换重试一次。
+        """
         lines = "\n".join(f"{k}={v}" for k, v in batch.items())
         user_msg = (
             f"模组 ID: {modid}（这是 Minecraft 《我的世界》1.20.1 整合包中的一个模组，"
@@ -177,22 +235,32 @@ class Translator:
             f"请翻译以下条目，同一术语保持全模组统一，每行返回格式：<key>:<translation>\n"
             f"```\n{lines}\n```"
         )
-        try:
-            resp = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": self.SYSTEM_PROMPT},
-                    {"role": "user", "content": user_msg},
-                ],
-                temperature=0.2,
-                max_tokens=2048,
-            )
-            text = resp.choices[0].message.content or ""
-        except Exception as e:
-            print(f"[WARN] LLM 调用失败（{modid}，{len(batch)} 条）: {e}")
-            return {}
+        messages = [
+            {"role": "system", "content": self.SYSTEM_PROMPT},
+            {"role": "user", "content": user_msg},
+        ]
 
-        return self._parse_response(text, batch)
+        candidates = [self._primary]
+        if self._fallback and self._fallback != self._primary:
+            candidates.append(self._fallback)
+
+        for idx, (client, model) in enumerate(candidates):
+            if client is None:
+                continue
+            try:
+                resp = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=0.2,
+                    max_tokens=2048,
+                )
+                text = resp.choices[0].message.content or ""
+                return self._parse_response(text, batch)
+            except Exception as e:
+                label = "primary" if idx == 0 else "fallback"
+                print(f"[WARN] LLM 调用失败（{label}，{modid}，{len(batch)} 条）: {e}")
+
+        return {}
 
     @classmethod
     def _parse_response(cls, text: str, expected: dict[str, str]) -> dict[str, str]:

@@ -35,8 +35,12 @@ mcp = FastMCP("mc-translator-mcp")
 _cache: TranslationCache | None = None
 
 
-def _get_cache() -> TranslationCache:
+def _get_cache(cache_file: str | None = None) -> TranslationCache:
     global _cache
+    # 若显式指定了缓存路径（来自 config.cache_file），按配置创建，不复用全局单例
+    if cache_file:
+        path = Path(cache_file).expanduser().resolve()
+        return TranslationCache(path)
     if _cache is None:
         cache_path = Path(__file__).resolve().parent.parent.parent / ".translator_cache.json"
         _cache = TranslationCache(cache_path)
@@ -68,9 +72,9 @@ async def translate_mod(
         cfg.batch_size = batch_size
 
     try:
-        translator = Translator(cfg, _get_cache())
+        translator = Translator(cfg, _get_cache(cfg.cache_file))
     except ValueError as e:
-        return f"❌ 配置错误：{e}\n请复制 .env.example 为 .env 并填入 DASHSCOPE_API_KEY"
+        return f"❌ 配置错误：{e}\n请复制 .env.example 为 .env 并填入至少一个供应商的 API Key。"
 
     builder = PackBuilder(Path(cfg.output_dir), mode="pack")
     parser = JARParser(jar)
@@ -189,7 +193,7 @@ async def dry_run_mod(
     if batch_size != 15:
         cfg.batch_size = batch_size
     try:
-        translator = Translator(cfg, _get_cache())
+        translator = Translator(cfg, _get_cache(cfg.cache_file))
     except ValueError as e:
         return json.dumps({"error": str(e)}, ensure_ascii=False, indent=2)
 
@@ -258,7 +262,7 @@ async def translate_all_mods_in_directory(
     if batch_size != 15:
         cfg.batch_size = batch_size
     try:
-        translator = Translator(cfg, _get_cache())
+        translator = Translator(cfg, _get_cache(cfg.cache_file))
     except ValueError as e:
         return f"❌ 配置错误：{e}"
 
