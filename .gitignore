@@ -33,6 +33,7 @@ Thumbs.db
 # Test artifacts
 tests/fixtures/*.jar
 tests/fixtures/output/
+.qtest/
 
 # Output packs
 output/

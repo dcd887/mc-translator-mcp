@@ -1,0 +1,11 @@
+{
+  "terms": {
+    "Starter": "初级",
+    "Basic": "基础",
+    "Advanced": "高级",
+    "Hardened": "硬化",
+    "Blazing": "烈焰",
+    "Refined": "精炼",
+    "Energized": "充能"
+  }
+}

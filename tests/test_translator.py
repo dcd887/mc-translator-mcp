@@ -11,7 +11,8 @@ from mc_translator_mcp.translator import TranslConfig, TranslationCache, Transla
 
 
 def _make_cfg(**overrides) -> TranslConfig:
-    base = {"dashscope_api_key": "fake-key-for-testing"}
+    # _env_file=None：测试与本地 .env 隔离，避免受真实配置影响
+    base = {"_env_file": None, "dashscope_api_key": "fake-key-for-testing"}
     base.update(overrides)
     return TranslConfig(**base)
 
@@ -42,6 +43,7 @@ class TestTranslator:
     def test_custom_vendor_takes_priority(self, mock_openai_cls, tmp_path: Path):
         """通用自定义供应商优先于 dashscope，并正确使用其 base_url / model。"""
         cfg = TranslConfig(
+            _env_file=None,
             translator_api_key="custom-key",
             translator_base_url="https://my.gateway.example/v1",
             translator_model="my-model",
@@ -67,6 +69,7 @@ class TestTranslator:
     def test_fallback_used_when_primary_fails(self, mock_openai_cls, tmp_path: Path):
         """主供应商抛异常时，应切换到 DeepSeek fallback。"""
         cfg = TranslConfig(
+            _env_file=None,
             translator_api_key="custom-key",
             translator_base_url="https://custom/v1",
             translator_model="custom-model",
@@ -130,3 +133,108 @@ class TestTranslator:
             t.translate_batch("mod", entries)
         # 5 条按 batch_size=2 应调用 3 次
         assert mock_llm.call_count == 3
+
+
+class TestEnglishLeak:
+    """译文英文残留检测。"""
+
+    def test_pure_chinese_no_leak(self):
+        assert Translator._has_english_leak("能量线缆（硝酸）") is False
+        assert Translator._has_english_leak("熔炉发电机") is False
+
+    def test_english_word_leak(self):
+        assert Translator._has_english_leak("沥青铀矿 ore（贫矿）") is True
+        assert Translator._has_english_leak("powered by OreX") is True
+
+    def test_placeholders_not_flagged(self):
+        assert Translator._has_english_leak("还需要 %s 个方块") is False
+        assert Translator._has_english_leak("消耗 {0} FE 能量") is False
+        assert Translator._has_english_leak("§a把 <powah:wrench> 装上去") is False
+
+    def test_allowlist_abbreviations_not_flagged(self):
+        assert Translator._has_english_leak("每秒产出 20 FE/t") is False
+        assert Translator._has_english_leak("GUI 已打开") is False
+        # 中英相邻时也能正确识别缩写（Python \b 对中文不生效，需特殊处理）
+        assert Translator._has_english_leak("升级末影终端GUI来扩容") is False
+        assert Translator._has_english_leak("需连接Forge能量（FE）方块") is False
+        assert Translator._has_english_leak("shift+右键打开界面") is False
+
+
+class TestCallLlmFixes:
+    """漏译补翻 + 英文残留纠正。"""
+
+    def _make_translator(self, tmp_path: Path) -> Translator:
+        return Translator(_make_cfg(), TranslationCache(tmp_path / "c.json"))
+
+    def test_missing_keys_are_retried(self, tmp_path: Path):
+        t = self._make_translator(tmp_path)
+        batch = {"item.a": "Alpha", "item.b": "Beta", "wiki.c": "<powah:wrench> C"}
+        # 第一轮只返回 2 条，漏了 wiki.c；第二轮补回 wiki.c
+        with patch.object(t, "_chat", side_effect=[
+            "item.a:阿尔法\nitem.b:贝塔",
+            "wiki.c:使用 <powah:wrench> 的 C",
+        ]) as mock_chat:
+            result = t._call_llm("mod", batch)
+        assert result == {
+            "item.a": "阿尔法",
+            "item.b": "贝塔",
+            "wiki.c": "使用 <powah:wrench> 的 C",
+        }
+        assert mock_chat.call_count == 2
+
+    def test_english_leak_is_corrected(self, tmp_path: Path):
+        t = self._make_translator(tmp_path)
+        batch = {"block.a": "A ore", "block.b": "B"}
+        # 第一轮 block.a 残留英文 "ore"；第二轮纠正
+        with patch.object(t, "_chat", side_effect=[
+            "block.a:沥青铀矿 ore（贫矿）\nblock.b:B 方块",
+            "block.a:沥青铀矿（贫矿）",
+        ]) as mock_chat:
+            result = t._call_llm("mod", batch)
+        assert result["block.a"] == "沥青铀矿（贫矿）"
+        assert result["block.b"] == "B 方块"
+        assert mock_chat.call_count == 2
+
+    def test_no_fix_when_clean(self, tmp_path: Path):
+        t = self._make_translator(tmp_path)
+        batch = {"item.a": "Alpha"}
+        with patch.object(t, "_chat", return_value="item.a:阿尔法") as mock_chat:
+            result = t._call_llm("mod", batch)
+        assert result == {"item.a": "阿尔法"}
+        mock_chat.assert_called_once()
+
+
+class TestGlossary:
+    """模组定制术语表。"""
+
+    def test_load_glossary_flat(self, tmp_path: Path):
+        p = tmp_path / "g.json"
+        p.write_text('{"Niotic": "钻石", "Blazing": "烈焰"}', encoding="utf-8")
+        assert Translator._load_glossary(str(p)) == {"Niotic": "钻石", "Blazing": "烈焰"}
+
+    def test_load_glossary_terms_key(self, tmp_path: Path):
+        p = tmp_path / "g.json"
+        p.write_text('{"terms": {"Starter": "初级"}}', encoding="utf-8")
+        assert Translator._load_glossary(str(p)) == {"Starter": "初级"}
+
+    def test_load_glossary_missing_or_bad(self, tmp_path: Path):
+        assert Translator._load_glossary(str(tmp_path / "nope.json")) == {}
+        bad = tmp_path / "bad.json"
+        bad.write_text("{not json", encoding="utf-8")
+        assert Translator._load_glossary(str(bad)) == {}
+
+    def test_glossary_injected_into_system_prompt(self, tmp_path: Path):
+        t = Translator(_make_cfg(glossary_file=str(tmp_path / "g.json")), TranslationCache(tmp_path / "c.json"))
+        p = tmp_path / "g.json"
+        p.write_text('{"Niotic": "钻石"}', encoding="utf-8")
+        t._glossary = Translator._load_glossary(str(p))
+        t._system_prompt = t._build_system_prompt(t._glossary)
+        assert "Niotic → 钻石" in t._system_prompt
+
+    def test_no_glossary_prompt_unchanged(self, tmp_path: Path):
+        t = Translator(
+            _make_cfg(glossary_file=str(tmp_path / "none.json")),
+            TranslationCache(tmp_path / "c.json"),
+        )
+        assert t._glossary == {}
+        assert t._system_prompt == Translator.SYSTEM_PROMPT

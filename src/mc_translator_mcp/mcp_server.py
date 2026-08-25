@@ -356,21 +356,21 @@ def main() -> None:
         sys.exit(0)
 
     if args.command == "mod":
-        result = translate_mod(
+        result = asyncio.run(translate_mod(
             jar_path=args.jar_path,
             batch_size=args.batch_size,
             force_retranslate=args.force_retranslate,
-        )
+        ))
         print(result)
         sys.exit(0 if "❌" not in result else 1)
 
     if args.command == "dir":
-        result = translate_all_mods_in_directory(
+        result = asyncio.run(translate_all_mods_in_directory(
             directory=args.directory,
             glob_pattern=args.glob,
             batch_size=args.batch_size,
             force_retranslate=args.force_retranslate,
-        )
+        ))
         print(result)
         sys.exit(0 if "❌" not in result else 1)
 

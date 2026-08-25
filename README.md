@@ -140,11 +140,32 @@ output/
 
 - **Minecraft 官方术语**：`Block`→方块、`Item`→物品、`Inventory`→背包、`Health`→生命、`Craft`→合成、`Enchant`→附魔、`Tool`→工具、`Armor`→盔甲、`Chunk`→区块
 - **术语全程一致**：同一英文术语在整个模组内固定用一个中文译名（不会出现一会儿「背包」一会儿「物品栏」），整批条目一起统一后再落盘
+- **纯中文输出**：强制要求译文不得残留英文单词（如不允许「沥青铀矿 ore」这种中英混排）；产物会做**残留英文自动纠正**——检测到英文单词的译文自动发起一轮纠正重试
+- **漏译自动补翻**：模型偶尔会少返回个别 key，工具会自动对缺失条目发起一轮补翻，保证翻译覆盖率
+- **长文本自然化**：wiki/tooltip 等长描述按中文表达习惯意译润色，避免逐字直译的机翻腔
 - **知名名词保持通认**：知名模组 / 系列名、科技与化学类专业词保持社区通认译法，不随意直译，如 `Sodium`→钠、`Copper`→铜
-- **格式占位符绝不改动**：`{0}`、`%s`、`$variable$`、`§`颜色码、`\n` 等原样保留
+- **格式占位符绝不改动**：`{0}`、`%s`、`$variable$`、`§`颜色码、`<modid:item>` 物品标签、`\n` 等原样保留
 - **只回传译文**：每条按 `<key>:<中文翻译>` 返回，不做额外解释
 
-> 你可以在 `translator.py` 的 `SYSTEM_PROMPT` 中按需补充自己的术语表或规则，改完即生效。
+### 定制术语表（推荐）
+
+不同模组有自己的社区通认译名（如 Powah 的等级：`Niotic`→钻石、`Spirited`→富生、`Nitro`→下界），通用提示词无法提前知道。为此支持**模组定制术语表**：
+
+1. 编辑项目根目录的 `translator_glossary.json`（或通过 `GLOSSARY_FILE` 环境变量指定其它路径），格式为 `{ "terms": { "英文术语": "强制中文译名" } }`：
+   ```json
+   {
+     "terms": {
+       "Niotic": "钻石",
+       "Spirited": "富生",
+       "Nitro": "下界",
+       "Blazing": "烈焰"
+     }
+   }
+   ```
+2. 这些术语会注入翻译提示词，要求全模组严格使用定制译名，与官方/社区译名对齐。
+3. 文件缺失或格式错误不影响使用（退化为通用提示词）。
+
+> 你也可以直接在 `translator.py` 的 `SYSTEM_PROMPT` 中补充通用规则，改完即生效。
 
 ## 核心模块
 
@@ -152,7 +173,7 @@ output/
 |------|------|
 | `jar_parser.py` | 解析 jar 包结构，发现语言文件 |
 | `lang_parser.py` | 解析 .json / .lang / .properties 格式语言文件 |
-| `translator.py` | 多供应商批量翻译（custom / agnes / 通义 / DeepSeek）+ Minecraft 术语提示 + 本地缓存 |
+| `translator.py` | 多供应商批量翻译（custom / agnes / 通义 / DeepSeek）+ Minecraft 术语提示 + 定制术语表 + 漏译补翻 + 残留英文纠正 + 本地缓存 |
 | `pack_builder.py` | 生成资源包或改写 jar |
 | `mcp_server.py` | MCP 服务器入口，暴露 4 个工具：`translate_mod` / `translate_all_mods_in_directory` / `preview_mod`（零成本预览）/ `dry_run_mod`（抽样预览） |
 
@@ -169,3 +190,4 @@ python -m pytest tests/ -v
 3. **已有汉化跳过**：检测到已有 zh_cn.json 时自动跳过，避免覆盖社区翻译
 4. **批量翻译**：每批最多 BATCH_SIZE 条，一次 API 调用返回全部结果
 5. **格式兼容**：支持 `.json`（现代）、`.lang`（传统）与 `.properties`（部分老模组/Java 习惯）三种语言文件格式；`.properties` 源会自动转为 Minecraft 可加载的 `zh_cn.json` 输出
+6. **质量自纠**：漏译条目自动补翻、残留英文自动纠正、定制术语表注入，从流程上保证翻译质量与社区译法一致

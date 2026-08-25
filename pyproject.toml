@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "mc-translator-mcp"
@@ -9,7 +9,7 @@ description = "MCP tool for automatically translating Minecraft mods to Chinese 
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
-authors = [{name = "mc-translator-mcp", email = ""}]
+authors = [{name = "mc-translator-mcp"}]
 dependencies = [
     "mcp>=1.0.0,<2.0.0",
     "openai>=1.0.0,<2.0.0",
@@ -26,6 +26,7 @@ dev = [
 mc-translator-mcp = "mc_translator_mcp.mcp_server:main"
 
 [tool.setuptools.packages.find]
+where = ["src"]
 include = ["mc_translator_mcp*"]
 
 [tool.ruff]

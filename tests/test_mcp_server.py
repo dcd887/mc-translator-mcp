@@ -46,11 +46,13 @@ def test_preview_mod_not_found():
     assert "error" in result
 
 
-def test_dry_run_mod_requires_api_key(monkeypatch):
+def test_dry_run_mod_requires_api_key(monkeypatch, tmp_path):
     """dry-run 无 API Key 时应返回配置错误（JSON），而不是崩溃。"""
     # 强制清空所有可能的 API Key 来源，保证测试确定
     for k in ("DASHSCOPE_API_KEY", "TRANSLATOR_API_KEY", "AGNES_API_KEY", "DEEPSEEK_API_KEY"):
         monkeypatch.delenv(k, raising=False)
+    # 切换到临时目录，避免读取仓库根目录里真实的 .env（pydantic-settings 按 CWD 解析）
+    monkeypatch.chdir(tmp_path)
     jar = _make_jar({"assets/testmod/lang/en_us.json": json.dumps({"a": "b"})})
     result = json.loads(asyncio.run(dry_run_mod(str(jar), limit=5)))
     assert "error" in result and "API" in result["error"]
