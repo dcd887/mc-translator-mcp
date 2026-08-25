@@ -42,6 +42,24 @@ TRANSLATOR_MODEL=your-model
 
 > 所有配置都从环境变量 / `.env` 读取，**任何环境本地都能跑通、可移植**。填好任一家的 key 即可开始翻译；改成别的供应商只需改 `.env`，不用动代码。
 
+### 如何验证配置是否生效
+
+1. **先确认程序能跑**（不联网）：
+   ```bash
+   python -m mc_translator_mcp --help
+   ```
+   能看到命令帮助说明安装正常。若报 `No module named mc_translator_mcp`，说明没装好或没在项目目录下运行。
+
+2. **再确认 API Key 被正确加载**：
+   ```bash
+   python -m mc_translator_mcp dry-run "C:/path/to/某个模组.jar"
+   ```
+   - 返回**译文样例** → 配置已生效，可以正式翻译；
+   - 提示**「未配置可用的 API Key」** → `.env` 没生效或 key 填错，回查 `.env` 文件名（不要叫 `.env.example`）与变量名；
+   - 报**网络/鉴权错误** → key/base_url/模型名任一可能不对，对照所选供应商的文档核对。
+
+   > `dry-run` 会抽样翻译少量条目（默认 20 条），消耗极少 token，是验证配置最直接的方式。
+
 ## 启动方式
 
 ### 作为 MCP 服务器（推荐）
@@ -91,12 +109,14 @@ Trae 会自动调用 MCP 工具的 `translate_mod` 或 `translate_all_mods_in_di
 
 ### 本地运行
 ```bash
-# 翻译单个模组
-python -m mc_translator_mcp mod "C:/Users/kjds/Desktop/mods/myzombie.jar" --batch-size 20
+# 翻译单个模组（把 <jar_path> 替换成你电脑上的实际路径，下同）
+python -m mc_translator_mcp mod "C:/path/to/mods/myzombie.jar" --batch-size 20
 
 # 批量翻译整个 mods 目录
-python -m mc_translator_mcp dir "C:/Users/kjds/Desktop/.minecraft/mods" --glob "*.jar"
+python -m mc_translator_mcp dir "C:/path/to/.minecraft/mods" --glob "*.jar"
 ```
+
+> 所有 `<jar_path>` / `<directory>` 都请替换成你的**实际绝对路径**，例如 `C:/Users/你的用户名/Desktop/mods/myzombie.jar`。路径中含空格时记得加英文双引号。
 
 ## 输出
 
