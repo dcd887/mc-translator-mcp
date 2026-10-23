@@ -1,4 +1,7 @@
 # mc-translator-mcp
+
+[![M8ven Verified](https://m8ven.ai/badge/mcp/dcd887/mc-translator-mcp?variant=verified)](https://m8ven.ai/mcp/dcd887/mc-translator-mcp?s=readme)
+
 Minecraft 模组中文翻译 MCP 工具
 
 自动从模组 jar 包提取语言文件，调用通义千问批量翻译，生成中文资源包。
