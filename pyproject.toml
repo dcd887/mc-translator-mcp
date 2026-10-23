@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mc-translator-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "MCP tool for automatically translating Minecraft mods to Chinese (zh_cn)"
 readme = "README.md"
 requires-python = ">=3.10"
