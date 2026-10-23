@@ -29,5 +29,14 @@ jobs:
       - name: Login (GitHub OIDC)
         run: mcp-publisher login github-oidc
 
-      - name: Publish
-        run: mcp-publisher publish
+      - name: Publish (idempotent)
+        shell: bash
+        run: |
+          set +e
+          OUT=$(mcp-publisher publish 2>&1); RC=$?
+          echo "$OUT"
+          if [ $RC -ne 0 ] && echo "$OUT" | grep -qi "duplicate version"; then
+            echo "::warning::该版本已发布，按成功处理"
+            exit 0
+          fi
+          exit $RC
