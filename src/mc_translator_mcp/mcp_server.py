@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 
 from .jar_parser import JARParser
 from .lang_parser import LangParser
@@ -47,7 +48,13 @@ def _get_cache(cache_file: str | None = None) -> TranslationCache:
     return _cache
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(
+    title="翻译单个模组",
+    readOnlyHint=False,
+    destructiveHint=False,
+    idempotentHint=False,
+    openWorldHint=True,
+))
 async def translate_mod(
     jar_path: str,
     batch_size: int = 15,
@@ -109,7 +116,13 @@ async def translate_mod(
     return builder.summarize(results)
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(
+    title="预览汉化范围",
+    readOnlyHint=True,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
+))
 async def preview_mod(jar_path: str) -> str:
     """（零成本）预览单个模组的汉化范围：列出每个语言文件、条目数与预估 token。
 
@@ -167,7 +180,13 @@ async def preview_mod(jar_path: str) -> str:
     }, ensure_ascii=False, indent=2)
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(
+    title="抽样试译",
+    readOnlyHint=True,
+    destructiveHint=False,
+    idempotentHint=False,
+    openWorldHint=True,
+))
 async def dry_run_mod(
     jar_path: str,
     limit: int = 20,
@@ -233,7 +252,13 @@ async def dry_run_mod(
     }, ensure_ascii=False, indent=2)
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(
+    title="批量翻译目录",
+    readOnlyHint=False,
+    destructiveHint=False,
+    idempotentHint=False,
+    openWorldHint=True,
+))
 async def translate_all_mods_in_directory(
     directory: str,
     glob_pattern: str = "*.jar",
